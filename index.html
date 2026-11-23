@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>POLYMER POP AR: ภารกิจพิชิตโลกพอลิเมอร์</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tone.js สำหรับสร้างเสียงเอฟเฟกต์ในเกม -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- Google Fonts: Prompt & Kanit สำหรับภาษาไทยที่สวยงามและอ่านง่าย -->
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600;700;800&family=Prompt:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+        body {
+            font-family: 'Prompt', sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #090d16;
+            color: #ffffff;
+        }
+        h1, h2, h3, .font-display {
+            font-family: 'Kanit', sans-serif;
+        }
+
+        /* พื้นหลังจำลอง AR กรณีไม่เปิดกล้อง หรือเปิดกล้องไม่ได้ */
+        .ar-fallback-bg {
+            background: radial-gradient(circle at 50% 30%, #1e293b 0%, #0f172a 60%, #020617 100%);
+            background-size: 100% 100%;
+        }
+        .ar-grid {
+            background-image: 
+                linear-gradient(to right, rgba(56, 189, 248, 0.12) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(56, 189, 248, 0.12) 1px, transparent 1px);
+            background-size: 40px 40px;
+            animation: gridMove 15s linear infinite;
+        }
+        @keyframes gridMove {
+            0% { background-position: 0 0; }
+            100% { background-position: 40px 40px; }
+        }
+
+        /* แอนิเมชันหน้าปก */
+        @keyframes floatSlow {
+            0%, 100% { transform: translateY(0px) rotate(-2deg); }
+            50% { transform: translateY(-12px) rotate(2deg); }
+        }
+        .animate-float {
+            animation: floatSlow 3.5s ease-in-out infinite;
+        }
+
+        @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 20px rgba(56, 189, 248, 0.5), 0 0 40px rgba(168, 85, 247, 0.3); }
+            50% { box-shadow: 0 0 30px rgba(56, 189, 248, 0.8), 0 0 60px rgba(168, 85, 247, 0.6); }
+        }
+        .btn-glow {
+            animation: pulseGlow 2.5s infinite;
+        }
+
+        /* เอฟเฟกต์สั่นหน้าจอเมื่อกดผิด */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-8px); }
+            40% { transform: translateX(8px); }
+            60% { transform: translateX(-6px); }
+            80% { transform: translateX(6px); }
+        }
+        .shake-screen {
+            animation: shake 0.35s ease-in-out;
+        }
+
+        /* กรอบ AR HUD */
+        .hud-corner {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border-color: rgba(56, 189, 248, 0.7);
+            pointer-events: none;
+            z-index: 15;
+        }
+        .hud-tl { top: 12px; left: 12px; border-top: 3px solid; border-left: 3px solid; border-top-left-radius: 8px; }
+        .hud-tr { top: 12px; right: 12px; border-top: 3px solid; border-right: 3px solid; border-top-right-radius: 8px; }
+        .hud-bl { bottom: 12px; left: 12px; border-bottom: 3px solid; border-left: 3px solid; border-bottom-left-radius: 8px; }
+        .hud-br { bottom: 12px; right: 12px; border-bottom: 3px solid; border-right: 3px solid; border-bottom-right-radius: 8px; }
+
+        /* Custom Scrollbar สำหรับหน้าสรุป */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.5);
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="w-screen h-screen relative overflow-hidden">
+
+    <!-- วิดีโอพื้นหลังกล้อง AR -->
+    <video id="ar-video" autoplay playsinline muted class="fixed inset-0 w-full h-full object-cover z-0 hidden"></video>
+    
+    <!-- พื้นหลังจำลอง AR (แสดงเมื่อปิดกล้องหรือกล้องไม่พร้อมใช้งาน) -->
+    <div id="ar-fallback" class="fixed inset-0 w-full h-full ar-fallback-bg ar-grid z-0">
+        <!-- วงแหวนเรดาร์ตกแต่ง -->
+        <div class="absolute inset-0 flex items-center justify-center opacity-20 pointer-events-none">
+            <div class="w-72 h-72 md:w-96 md:h-96 rounded-full border-2 border-dashed border-cyan-400 animate-spin" style="animation-duration: 30s;"></div>
+            <div class="absolute w-48 h-48 md:w-64 md:h-64 rounded-full border border-purple-400"></div>
+        </div>
+    </div>
+
+    <!-- กรอบมุมจอสไตล์ AR Scanner -->
+    <div class="hud-corner hud-tl"></div>
+    <div class="hud-corner hud-tr"></div>
+    <div class="hud-corner hud-bl"></div>
+    <div class="hud-corner hud-br"></div>
+
+    <!-- Canvas หลักสำหรับลูกโป่งและเอฟเฟกต์อนุภาค -->
+    <canvas id="game-canvas" class="fixed inset-0 w-full h-full z-10"></canvas>
+
+    <!-- ========================================== -->
+    <!-- 1. หน้าปกเกม (COVER SCREEN)                  -->
+    <!-- ========================================== -->
+    <div id="cover-screen" class="fixed inset-0 z-30 flex flex-col items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md overflow-y-auto">
+        <div class="max-w-lg w-full bg-gradient-to-b from-slate-900/90 to-slate-950/95 border border-cyan-500/40 rounded-3xl p-6 md:p-8 shadow-2xl text-center relative overflow-hidden my-auto">
+            
+            <!-- แสงตกแต่งด้านบนการ์ด -->
+            <div class="absolute -top-20 -left-20 w-44 h-44 bg-cyan-500/20 rounded-full blur-3xl pointer-events-none"></div>
+            <div class="absolute -bottom-20 -right-20 w-44 h-44 bg-fuchsia-500/20 rounded-full blur-3xl pointer-events-none"></div>
+
+            <!-- ป้ายกำกับ AR Chemistry -->
+            <div class="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 text-xs md:text-sm font-semibold mb-3">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                AR CHEMISTRY ADVENTURE
+            </div>
+
+            <!-- โลโก้ลูกโป่งโมเลกุล SVG -->
+            <div class="flex justify-center my-2 animate-float">
+                <svg class="w-28 h-28 md:w-32 md:h-32 drop-shadow-[0_10px_20px_rgba(56,189,248,0.4)]" viewBox="0 0 140 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <!-- ลูกโป่งซ้าย (ธรรมชาติ - เขียวมรกต) -->
+                    <ellipse cx="46" cy="58" rx="28" ry="34" fill="url(#gradGreen)" stroke="#A7F3D0" stroke-width="2"/>
+                    <ellipse cx="37" cy="44" rx="6" ry="11" transform="rotate(-25 37 44)" fill="white" fill-opacity="0.45"/>
+                    <path d="M46 92 Q42 108 52 122" stroke="#6EE7B7" stroke-width="2" stroke-linecap="round"/>
+                    <!-- ลูกโป่งขวา (สังเคราะห์ - ชมพูม่วง) -->
+                    <ellipse cx="94" cy="54" rx="28" ry="34" fill="url(#gradPink)" stroke="#F5D0FE" stroke-width="2"/>
+                    <ellipse cx="85" cy="40" rx="6" ry="11" transform="rotate(-25 85 40)" fill="white" fill-opacity="0.45"/>
+                    <path d="M94 88 Q98 106 88 122" stroke="#F0ABFC" stroke-width="2" stroke-linecap="round"/>
+                    <!-- ลูกโป่งกลาง (โบนัส - ฟ้าทอง) -->
+                    <ellipse cx="70" cy="46" rx="31" ry="38" fill="url(#gradCyan)" stroke="#BAE6FD" stroke-width="2.5"/>
+                    <ellipse cx="59" cy="31" rx="7" ry="13" transform="rotate(-25 59 31)" fill="white" fill-opacity="0.55"/>
+                    <path d="M70 84 L66 90 L74 90 Z" fill="#0284C7"/>
+                    <path d="M70 90 Q70 110 70 128" stroke="#7DD3FC" stroke-width="2.5" stroke-linecap="round"/>
+                    <!-- สัญลักษณ์สายโซ่พอลิเมอร์บนลูกโป่งกลาง -->
+                    <circle cx="58" cy="48" r="4.5" fill="#FDE047"/>
+                    <circle cx="70" cy="42" r="4.5" fill="#FFFFFF"/>
+                    <circle cx="82" cy="48" r="4.5" fill="#FDE047"/>
+                    <line x1="58" y1="48" x2="70" y2="42" stroke="white" stroke-width="2.5"/>
+                    <line x1="70" y1="42" x2="82" y2="48" stroke="white" stroke-width="2.5"/>
+                    <defs>
+                        <linearGradient id="gradGreen" x1="20" y1="25" x2="70" y2="90" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#34D399"/>
+                            <stop offset="1" stop-color="#059669"/>
+                        </linearGradient>
+                        <linearGradient id="gradPink" x1="70" y1="20" x2="120" y2="85" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#E879F9"/>
+                            <stop offset="1" stop-color="#9333EA"/>
+                        </linearGradient>
+                        <linearGradient id="gradCyan" x1="40" y1="10" x2="100" y2="85" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#38BDF8"/>
+                            <stop offset="1" stop-color="#2563EB"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+            </div>
+
+            <!-- ชื่อเกม -->
+            <h1 class="font-display text-3xl md:text-4xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-sky-200 to-fuchsia-300 drop-shadow">
+                POLYMER POP AR
+            </h1>
+            <p class="font-display text-lg md:text-xl font-semibold text-amber-300 mt-1">
+                ภารกิจพิชิตโลกพอลิเมอร์
+            </p>
+            <p class="text-slate-300 text-xs md:text-sm mt-2 leading-relaxed">
+                สแกนพื้นที่รอบตัวให้กลายเป็นห้องทดลอง AR! แตะลูกโป่งพอลิเมอร์ให้ตรงตามภารกิจทั้ง 3 ด่าน สะสมคอมโบและลูกโป่งโบนัสเพื่อคว้าคะแนนสูงสุด
+            </p>
+
+            <!-- สรุปกติกา 3 ด่านแบบกระชับ -->
+            <div class="grid grid-cols-3 gap-2 my-4 text-left">
+                <div class="bg-emerald-950/60 border border-emerald-500/30 rounded-2xl p-2.5">
+                    <div class="text-emerald-400 font-bold text-xs">ด่านที่ 1</div>
+                    <div class="text-white font-semibold text-xs mt-0.5">พอลิเมอร์ธรรมชาติ</div>
+                    <div class="text-slate-400 text-[10px] mt-0.5">ระดับเริ่มต้น</div>
+                </div>
+                <div class="bg-fuchsia-950/60 border border-fuchsia-500/30 rounded-2xl p-2.5">
+                    <div class="text-fuchsia-400 font-bold text-xs">ด่านที่ 2</div>
+                    <div class="text-white font-semibold text-xs mt-0.5">พอลิเมอร์สังเคราะห์</div>
+                    <div class="text-slate-400 text-[10px] mt-0.5">ระดับท้าทาย</div>
+                </div>
+                <div class="bg-amber-950/60 border border-amber-500/30 rounded-2xl p-2.5">
+                    <div class="text-amber-400 font-bold text-xs">ด่านที่ 3</div>
+                    <div class="text-white font-semibold text-xs mt-0.5">สลับโหมดความเร็วสูง</div>
+                    <div class="text-slate-400 text-[10px] mt-0.5">ระดับเซียนเคมี</div>
+                </div>
+            </div>
+
+            <!-- ตัวเลือกเปิดกล้อง AR -->
+            <div class="flex items-center justify-between bg-slate-800/80 border border-slate-700 rounded-2xl px-4 py-2.5 mb-5">
+                <div class="flex items-center gap-2.5 text-left">
+                    <span class="text-xl">📷</span>
+                    <div>
+                        <div class="text-xs md:text-sm font-semibold text-white">โหมดกล้อง AR (Camera)</div>
+                        <div id="camera-status-text" class="text-[11px] text-cyan-300">เปิดกล้องเพื่อซ้อนลูกโป่งในโลกจริง</div>
+                    </div>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="ar-camera-toggle" class="sr-only peer" checked>
+                    <div class="w-11 h-6 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-500"></div>
+                </label>
+            </div>
+
+            <!-- ปุ่มเริ่มเกม & คู่มือพอลิเมอร์ -->
+            <div class="flex flex-col sm:flex-row gap-3">
+                <button id="btn-study" class="w-full sm:w-1/3 py-3.5 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-semibold text-sm transition active:scale-95">
+                    📖 ทบทวนความรู้
+                </button>
+                <button id="btn-start-game" class="w-full sm:w-2/3 py-3.5 px-6 rounded-2xl bg-gradient-to-r from-cyan-500 via-blue-500 to-fuchsia-600 hover:from-cyan-400 hover:to-fuchsia-500 text-white font-display font-bold text-lg shadow-lg btn-glow transition active:scale-95">
+                    🚀 เริ่มภารกิจ AR
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- หน้าต่างทบทวนความรู้พอลิเมอร์ (STUDY MODAL)   -->
+    <!-- ========================================== -->
+    <div id="study-modal" class="fixed inset-0 z-40 hidden flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+        <div class="max-w-lg w-full bg-slate-900 border border-cyan-500/40 rounded-3xl p-6 shadow-2xl max-h-[85vh] flex flex-col">
+            <div class="flex justify-between items-center pb-3 border-b border-slate-700">
+                <h2 class="font-display text-xl font-bold text-cyan-300">🧬 คลังข้อมูลพอลิเมอร์ทั้ง 14 ชนิด</h2>
+                <button id="btn-close-study" class="w-8 h-8 rounded-full bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center font-bold">✕</button>
+            </div>
+            <div class="overflow-y-auto py-4 space-y-4 pr-1 text-sm">
+                <div class="bg-emerald-950/50 border border-emerald-500/40 rounded-2xl p-4">
+                    <h3 class="font-display font-bold text-emerald-400 text-base mb-2 flex items-center gap-2">
+                        🌿 พอลิเมอร์ธรรมชาติ (5 ชนิด)
+                    </h3>
+                    <p class="text-xs text-slate-300 mb-2">เกิดขึ้นเองตามธรรมชาติในสิ่งมีชีวิต (พืชและสัตว์)</p>
+                    <div class="flex flex-wrap gap-2" id="study-natural-list"></div>
+                </div>
+                <div class="bg-fuchsia-950/50 border border-fuchsia-500/40 rounded-2xl p-4">
+                    <h3 class="font-display font-bold text-fuchsia-400 text-base mb-2 flex items-center gap-2">
+                        🧪 พอลิเมอร์สังเคราะห์ (9 ชนิด)
+                    </h3>
+                    <p class="text-xs text-slate-300 mb-2">เกิดจากการสังเคราะห์ทางเคมีในห้องทดลองหรือโรงงานอุตสาหกรรม</p>
+                    <div class="flex flex-wrap gap-2" id="study-synthetic-list"></div>
+                </div>
+            </div>
+            <button id="btn-close-study-bottom" class="mt-2 w-full py-3 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-sm transition">
+                เข้าใจแล้ว ลุยเลย!
+            </button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 2. หน้าจอแจ้งภารกิจก่อนเริ่มด่าน (BRIEFING)  -->
+    <!-- ========================================== -->
+    <div id="briefing-screen" class="fixed inset-0 z-30 hidden flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+        <div class="max-w-md w-full bg-slate-900/95 border-2 border-cyan-400/50 rounded-3xl p-6 md:p-8 text-center shadow-2xl">
+            <div id="briefing-badge" class="inline-block px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-3 bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
+                STAGE 1 / 3
+            </div>
+            <h2 id="briefing-title" class="font-display text-2xl md:text-3xl font-extrabold text-white mb-2">
+                ด่านที่ 1: พอลิเมอร์ธรรมชาติ
+            </h2>
+            <div id="briefing-target-box" class="my-4 p-4 rounded-2xl bg-emerald-500/15 border border-emerald-400/40">
+                <div class="text-xs text-slate-300 mb-1">เป้าหมายที่ต้องแตะให้แตก:</div>
+                <div id="briefing-target-text" class="font-display text-xl md:text-2xl font-bold text-emerald-300">
+                    🌿 พอลิเมอร์ธรรมชาติ
+                </div>
+            </div>
+            <p id="briefing-desc" class="text-slate-300 text-sm mb-6 leading-relaxed">
+                แตะลูกโป่งที่มีชื่อของ <b>พอลิเมอร์ธรรมชาติ</b> เท่านั้น! ระวังอย่าแตะพอลิเมอร์สังเคราะห์ และอย่าพลาดลูกโป่งสีทองโบนัส
+            </p>
+            <button id="btn-ready-level" class="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-display font-bold text-lg shadow-lg transition active:scale-95">
+                พร้อมแล้ว เริ่มด่านนี้! ⚡
+            </button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 3. หน้าจอ HUD ระหว่างเล่นเกม (GAMEPLAY HUD)  -->
+    <!-- ========================================== -->
+    <div id="game-hud" class="fixed inset-x-0 top-0 z-20 hidden p-3 md:p-5 pointer-events-none">
+        <div class="max-w-4xl mx-auto flex flex-col gap-2">
+            <!-- แถบบน: ด่าน, เวลา, คะแนน -->
+            <div class="flex items-center justify-between gap-2 bg-slate-950/75 backdrop-blur-md border border-slate-700/80 rounded-2xl px-3.5 py-2 shadow-lg">
+                <!-- ข้อมูลด่าน -->
+                <div class="flex items-center gap-2">
+                    <span id="hud-level-badge" class="px-2.5 py-1 rounded-xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 font-display font-bold text-xs md:text-sm">
+                        ด่าน 1/3
+                    </span>
+                    <div id="hud-combo-badge" class="hidden px-2.5 py-1 rounded-xl bg-amber-500/20 border border-amber-400/50 text-amber-300 font-bold text-xs animate-bounce">
+                        🔥 COMBO x2
+                    </div>
+                </div>
+
+                <!-- ตัวจับเวลา -->
+                <div class="flex items-center gap-1.5 bg-slate-900 px-3 py-1 rounded-xl border border-slate-700">
+                    <span class="text-sm">⏱️</span>
+                    <span id="hud-timer" class="font-display font-extrabold text-lg md:text-xl text-white tabular-nums">30</span>
+                    <span class="text-xs text-slate-400">วิ</span>
+                </div>
+
+                <!-- คะแนนรวมปัจจุบัน -->
+                <div class="text-right">
+                    <div class="text-[10px] text-slate-400 leading-none">คะแนนด่านนี้</div>
+                    <div id="hud-score" class="font-display font-extrabold text-lg md:text-xl text-amber-300 tabular-nums leading-tight">0</div>
+                </div>
+            </div>
+
+            <!-- แถบเป้าหมายภารกิจ (Target Banner) -->
+            <div id="hud-target-banner" class="mx-auto px-5 py-2 rounded-2xl bg-emerald-950/85 backdrop-blur-md border-2 border-emerald-400 shadow-lg flex items-center gap-2.5 transition-all duration-300">
+                <span class="text-xs md:text-sm text-slate-200 font-medium">แตะ:</span>
+                <span id="hud-target-label" class="font-display font-extrabold text-base md:text-lg text-emerald-300 tracking-wide">
+                    🌿 พอลิเมอร์ธรรมชาติ
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- แถบแจ้งเตือนคำอธิบายสั้น ๆ เมื่อกดผิดหรือได้โบนัส -->
+    <div id="feedback-toast" class="fixed bottom-6 inset-x-0 z-20 flex justify-center pointer-events-none px-4 transition-opacity duration-300 opacity-0">
+        <div id="feedback-toast-box" class="px-4 py-2 rounded-2xl bg-slate-900/90 border border-rose-500/60 text-white text-xs md:text-sm font-medium shadow-xl backdrop-blur-md text-center">
+            ข้อความแจ้งเตือน
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 4. หน้าจอสรุปผลแต่ละด่าน (LEVEL COMPLETE)   -->
+    <!-- ========================================== -->
+    <div id="level-complete-screen" class="fixed inset-0 z-30 hidden flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+        <div class="max-w-md w-full bg-slate-900/95 border border-cyan-500/40 rounded-3xl p-6 md:p-8 text-center shadow-2xl">
+            <div class="text-4xl mb-2">🎉</div>
+            <h2 id="lc-title" class="font-display text-2xl md:text-3xl font-extrabold text-white">
+                ผ่านด่านที่ 1 สำเร็จ!
+            </h2>
+            <p class="text-slate-400 text-xs md:text-sm mt-1">สรุปผลงานในด่านนี้</p>
+
+            <div class="my-5 bg-slate-800/80 border border-slate-700 rounded-2xl p-4 space-y-2.5 text-sm">
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-300">คะแนนจากการแตะพอลิเมอร์:</span>
+                    <span id="lc-base-score" class="font-bold text-white">+0</span>
+                </div>
+                <div class="flex justify-between items-center text-amber-300">
+                    <span>🌟 คะแนนโบนัส (คอมโบ & ลูกโป่งทอง):</span>
+                    <span id="lc-bonus-score" class="font-bold">+0</span>
+                </div>
+                <div class="border-t border-slate-700 pt-2 flex justify-between items-center text-base">
+                    <span class="font-bold text-cyan-300">รวมคะแนนด่านนี้:</span>
+                    <span id="lc-total-score" class="font-display font-extrabold text-xl text-cyan-300">0</span>
+                </div>
+            </div>
+
+            <button id="btn-next-level" class="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-display font-bold text-lg shadow-lg transition active:scale-95">
+                ไปด่านถัดไป ➔
+            </button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 5. หน้าจอสรุปคะแนนรวมหลังจบเกม (FINAL SUMMARY) -->
+    <!-- ========================================== -->
+    <div id="final-summary-screen" class="fixed inset-0 z-30 hidden flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
+        <div class="max-w-lg w-full bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-amber-400/50 rounded-3xl p-6 md:p-7 text-center shadow-2xl my-auto">
+            <div class="inline-block px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-bold mb-2">
+                MISSION ACCOMPLISHED
+            </div>
+            <h2 class="font-display text-2xl md:text-3xl font-extrabold text-white">
+                สรุปผลภารกิจพอลิเมอร์ AR
+            </h2>
+
+            <!-- เกรด / ระดับความสำเร็จ -->
+            <div class="my-4 flex items-center justify-center gap-4 bg-slate-800/70 border border-slate-700 rounded-2xl p-4">
+                <div id="final-rank-badge" class="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center font-display text-4xl font-black text-slate-950 shadow-lg">
+                    S
+                </div>
+                <div class="text-left">
+                    <div id="final-rank-title" class="font-display font-bold text-lg text-amber-300">สุดยอดนักเคมีพอลิเมอร์!</div>
+                    <div id="final-rank-desc" class="text-xs text-slate-300">แยกแยะพอลิเมอร์ธรรมชาติและสังเคราะห์ได้อย่างแม่นยำ</div>
+                </div>
+            </div>
+
+            <!-- ตารางคะแนนแยกแต่ละด่าน + โบนัส -->
+            <div class="bg-slate-900/90 border border-slate-700/80 rounded-2xl p-4 space-y-2 text-sm mb-4">
+                <div class="flex justify-between items-center text-slate-200">
+                    <span>🌿 ด่านที่ 1 (พอลิเมอร์ธรรมชาติ):</span>
+                    <span id="sum-lvl1" class="font-bold text-emerald-400">0 คะแนน</span>
+                </div>
+                <div class="flex justify-between items-center text-slate-200">
+                    <span>🧪 ด่านที่ 2 (พอลิเมอร์สังเคราะห์):</span>
+                    <span id="sum-lvl2" class="font-bold text-fuchsia-400">0 คะแนน</span>
+                </div>
+                <div class="flex justify-between items-center text-slate-200">
+                    <span>⚡ ด่านที่ 3 (โหมดสลับความเร็วสูง):</span>
+                    <span id="sum-lvl3" class="font-bold text-sky-400">0 คะแนน</span>
+                </div>
+                <div class="flex justify-between items-center text-amber-300 pt-1 border-t border-slate-800">
+                    <span>🌟 คะแนนโบนัสรวมทั้งหมด:</span>
+                    <span id="sum-bonus" class="font-bold">+0 คะแนน</span>
+                </div>
+                <div class="flex justify-between items-center pt-2 border-t border-slate-700">
+                    <span class="font-display font-bold text-base text-white">คะแนนสุทธิรวมทั้งสิ้น:</span>
+                    <span id="sum-grand-total" class="font-display font-extrabold text-2xl text-amber-400">0</span>
+                </div>
+            </div>
+
+            <!-- สถิติความแม่นยำ -->
+            <div class="grid grid-cols-2 gap-2 text-xs mb-5">
+                <div class="bg-slate-800/60 rounded-xl p-2.5 border border-slate-700/60">
+                    <div class="text-slate-400">แตะถูกต้อง</div>
+                    <div id="sum-correct-count" class="font-bold text-emerald-400 text-base mt-0.5">0 ครั้ง</div>
+                </div>
+                <div class="bg-slate-800/60 rounded-xl p-2.5 border border-slate-700/60">
+                    <div class="text-slate-400">คอมโบสูงสุด</div>
+                    <div id="sum-max-combo" class="font-bold text-amber-400 text-base mt-0.5">0 ต่อเนื่อง</div>
+                </div>
+            </div>
+
+            <!-- ปุ่มเล่นอีกครั้ง -->
+            <div class="flex gap-3">
+                <button id="btn-home" class="w-1/3 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-semibold text-sm transition active:scale-95">
+                    หน้าหลัก
+                </button>
+                <button id="btn-replay" class="w-2/3 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 via-cyan-500 to-blue-600 hover:from-emerald-400 hover:to-blue-500 text-white font-display font-bold text-lg shadow-lg transition active:scale-95">
+                    🔄 เล่นใหม่อีกครั้ง
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- JAVASCRIPT: ตรรกะเกม, ระบบ AR และ Canvas      -->
+    <!-- ========================================== -->
+    <script>
+        /**
+         * 1. ข้อมูลพอลิเมอร์ทั้ง 14 ชนิดตามที่กำหนด
+         * type: 'natural' (พอลิเมอร์ธรรมชาติ) | 'synthetic' (พอลิเมอร์สังเคราะห์)
+         */
+        const POLYMERS = [
+            // พอลิเมอร์ธรรมชาติ (5 ชนิด)
+            { name: "กรดนิวคลิอิก", type: "natural", hint: "พบใน DNA และ RNA ของสิ่งมีชีวิต" },
+            { name: "ไหม", type: "natural", hint: "เส้นใยโปรตีนธรรมชาติจากรังไหม" },
+            { name: "ฝ้าย", type: "natural", hint: "เส้นใยเซลลูโลสจากดอกฝ้าย" },
+            { name: "แป้ง", type: "natural", hint: "คาร์โบไฮเดรตสะสมในพืช" },
+            { name: "ยางพารา", type: "natural", hint: "น้ำยางธรรมชาติจากต้นยางพารา" },
+
+            // พอลิเมอร์สังเคราะห์ (9 ชนิด)
+            { name: "ไนลอน", type: "synthetic", hint: "เส้นใยสังเคราะห์ใช้ทำเชือก ถุงน่อง" },
+            { name: "พอลิเอทิลีน", type: "synthetic", hint: "พลาสติกสังเคราะห์ใช้ทำถุงพลาสติก" },
+            { name: "พอลิสไตรีน", type: "synthetic", hint: "พลาสติกสังเคราะห์ใช้ทำกล่องโฟม" },
+            { name: "พอลิไวนิลคลอไรด์", type: "synthetic", hint: "ท่อ PVC ที่เกิดจากการสังเคราะห์" },
+            { name: "พอลิเอสเทอร์", type: "synthetic", hint: "เส้นใยสังเคราะห์นิยมใช้ทำเสื้อผ้ากีฬา" },
+            { name: "เมลามีน", type: "synthetic", hint: "พลาสติกเทอร์โมเซตสังเคราะห์ทำจานชาม" },
+            { name: "เทฟลอน", type: "synthetic", hint: "พอลิเมอร์สังเคราะห์เคลือบกระทะกันติด" },
+            { name: "ยาง SBR", type: "synthetic", hint: "ยางสังเคราะห์ใช้ทำยางรถยนต์" },
+            { name: "พอลิเอทิลีนเทเรฟทาเลต", type: "synthetic", hint: "พลาสติก PET สังเคราะห์ทำขวดน้ำดื่ม" }
+        ];
+
+        // ชุดสีสันสดใสสำหรับลูกโป่ง
+        const BALLOON_PALETTES = [
+            { main: "#06b6d4", light: "#67e8f9", dark: "#0e7490" }, // ฟ้าไซแอน
+            { main: "#ec4899", light: "#f9a8d4", dark: "#be185d" }, // ชมพู
+            { main: "#8b5cf6", light: "#c4b5fd", dark: "#5b21b6" }, // ม่วง
+            { main: "#10b981", light: "#6ee7b7", dark: "#047857" }, // เขียวมรกต
+            { main: "#f97316", light: "#fdba74", dark: "#c2410c" }, // ส้ม
+            { main: "#3b82f6", light: "#93c5fd", dark: "#1d4ed8" }  // น้ำเงิน
+        ];
+        const GOLD_PALETTE = { main: "#f59e0b", light: "#fef08a", dark: "#b45309" }; // ลูกโป่งทองโบนัส
+
+        /**
+         * 2. ระบบเสียงสังเคราะห์ด้วย Tone.js (ไม่ต้องพึ่งไฟล์เสียงภายนอก)
+         */
+        class SoundFX {
+            constructor() {
+                this.initialized = false;
+                this.synth = null;
+                this.popSynth = null;
+            }
+            async init() {
+                if (this.initialized) return;
+                try {
+                    await Tone.start();
+                    this.popSynth = new Tone.MembraneSynth({
+                        pitchDecay: 0.03,
+                        octaves: 4,
+                        oscillator: { type: "sine" },
+                        envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.05 }
+                    }).toDestination();
+                    this.synth = new Tone.PolySynth(Tone.Synth).toDestination();
+                    this.synth.volume.value = -8;
+                    this.initialized = true;
+                } catch (e) {
+                    console.warn("Audio init skipped:", e);
+                }
+            }
+            playPop(combo = 1) {
+                if (!this.initialized) return;
+                try {
+                    const baseFreq = Math.min(350 + combo * 45, 900);
+                    this.popSynth.triggerAttackRelease(baseFreq, "16n");
+                    this.synth.triggerAttackRelease(["C5", "E5"], "32n", "+0.02");
+                } catch (e) {}
+            }
+            playBonus() {
+                if (!this.initialized) return;
+                try {
+                    this.synth.triggerAttackRelease(["C5", "E5", "G5", "C6"], "16n");
+                } catch (e) {}
+            }
+            playWrong() {
+                if (!this.initialized) return;
+                try {
+                    this.synth.triggerAttackRelease(["F2", "F#2"], "8n");
+                } catch (e) {}
+            }
+            playSwitch() {
+                if (!this.initialized) return;
+                try {
+                    this.synth.triggerAttackRelease(["A4", "D5"], "16n");
+                } catch (e) {}
+            }
+            playLevelWin() {
+                if (!this.initialized) return;
+                try {
+                    const now = Tone.now();
+                    this.synth.triggerAttackRelease("C5", "16n", now);
+                    this.synth.triggerAttackRelease("E5", "16n", now + 0.1);
+                    this.synth.triggerAttackRelease("G5", "16n", now + 0.2);
+                    this.synth.triggerAttackRelease("C6", "4n", now + 0.3);
+                } catch (e) {}
+            }
+        }
+        const sfx = new SoundFX();
+
+        /**
+         * 3. ระบบกล้อง AR (WebRTC)
+         */
+        const arVideo = document.getElementById("ar-video");
+        const arFallback = document.getElementById("ar-fallback");
+        const arCameraToggle = document.getElementById("ar-camera-toggle");
+        const cameraStatusText = document.getElementById("camera-status-text");
+        let cameraStream = null;
+
+        async function setupCamera(enable) {
+            if (!enable) {
+                stopCamera();
+                arVideo.classList.add("hidden");
+                arFallback.classList.remove("hidden");
+                cameraStatusText.textContent = "ใช้พื้นหลังจำลอง AR 3 มิติ";
+                return;
+            }
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error("Browser does not support camera");
+                }
+                cameraStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment" },
+                    audio: false
+                });
+                arVideo.srcObject = cameraStream;
+                arVideo.classList.remove("hidden");
+                arFallback.classList.add("hidden");
+                cameraStatusText.textContent = "เชื่อมต่อกล้อง AR สำเร็จ ✓";
+            } catch (err) {
+                console.warn("Camera unavailable, using AR simulation background:", err);
+                arCameraToggle.checked = false;
+                arVideo.classList.add("hidden");
+                arFallback.classList.remove("hidden");
+                cameraStatusText.textContent = "ไม่พบกล้อง (สลับเป็นโหมดจำลอง AR อัตโนมัติ)";
+            }
+        }
+
+        function stopCamera() {
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                cameraStream = null;
+            }
+        }
+
+        arCameraToggle.addEventListener("change", (e) => {
+            setupCamera(e.target.checked);
+        });
+
+        /**
+         * 4. ตั้งค่า Canvas และสถานะเกม (Game State)
+         */
+        const canvas = document.getElementById("game-canvas");
+        const ctx = canvas.getContext("2d");
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener("resize", resizeCanvas);
+        resizeCanvas();
+
+        const LEVEL_CONFIGS = {
+            1: {
+                level: 1,
+                badge: "STAGE 1 / 3 • ระดับเริ่มต้น",
+                title: "ด่านที่ 1: พอลิเมอร์ธรรมชาติ",
+                targetType: "natural",
+                duration: 30,
+                spawnInterval: 1150, // มิลลิวินาที
+                minSpeed: 1.4,
+                maxSpeed: 2.3,
+                desc: "ลูกโป่งชื่อพอลิเมอร์จะลอยขึ้นมา ให้แตะเฉพาะลูกโป่งที่เป็น <b>พอลิเมอร์ธรรมชาติ</b> เท่านั้น! ยิ่งแตะต่อเนื่องยิ่งได้คะแนนคอมโบโบนัส"
+            },
+            2: {
+                level: 2,
+                badge: "STAGE 2 / 3 • ระดับท้าทาย",
+                title: "ด่านที่ 2: พอลิเมอร์สังเคราะห์",
+                targetType: "synthetic",
+                duration: 30,
+                spawnInterval: 900,
+                minSpeed: 2.0,
+                maxSpeed: 3.1,
+                desc: "ความเร็วเพิ่มขึ้น! รอบนี้ให้แตะเฉพาะลูกโป่งที่เป็น <b>พอลิเมอร์สังเคราะห์</b> เท่านั้น และคอยจับตาดูลูกโป่งสีทองโบนัส!"
+            },
+            3: {
+                level: 3,
+                badge: "STAGE 3 / 3 • ระดับเซียนเคมี",
+                title: "ด่านที่ 3: สลับภารกิจความเร็วสูง",
+                targetType: "dynamic", // สลับไปมาระหว่างธรรมชาติและสังเคราะห์ทุก ๆ 12 วินาที
+                duration: 36,
+                spawnInterval: 720,
+                minSpeed: 2.5,
+                maxSpeed: 3.8,
+                desc: "บททดสอบขั้นสุดยอด! ลูกโป่งลอยเร็วและเยอะขึ้น แถมเป้าหมายจะ <b>สลับระหว่างพอลิเมอร์ธรรมชาติและสังเคราะห์</b> ระหว่างด่าน สังเกตแถบเป้าหมายด้านบนให้ดี!"
+            }
+        };
+
+        let gameState = {
+            isPlaying: false,
+            currentLevel: 1,
+            currentTarget: "natural", // 'natural' หรือ 'synthetic'
+            timeLeft: 30,
+            levelBaseScore: 0,
+            levelBonusScore: 0,
+            combo: 0,
+            maxCombo: 0,
+            correctCount: 0,
+            levelResults: {
+                1: { base: 0, bonus: 0, total: 0 },
+                2: { base: 0, bonus: 0, total: 0 },
+                3: { base: 0, bonus: 0, total: 0 }
+            },
+            balloons: [],
+            particles: [],
+            floatingTexts: [],
+            lastSpawnTime: 0,
+            timerInterval: null,
+            switchInterval: null
+        };
+
+        /**
+         * 5. คลาสสำหรับลูกโป่ง, อนุภาค และข้อความลอย
+         */
+        class Balloon {
+            constructor(polymer, isGolden, speedRange) {
+                this.polymer = polymer;
+                this.isGolden = isGolden; // ลูกโป่งทองโบนัสพิเศษ
+                
+                // คำนวณขนาดลูกโป่งตามความยาวชื่อและขนาดหน้าจอ
+                const baseRadius = Math.min(Math.max(window.innerWidth * 0.11, 48), 64);
+                this.rx = polymer.name.length > 14 ? baseRadius * 1.18 : baseRadius;
+                this.ry = this.rx * 1.16;
+
+                const margin = this.rx + 16;
+                this.x = margin + Math.random() * (canvas.width - margin * 2);
+                this.y = canvas.height + this.ry + 20;
+
+                this.vy = speedRange.min + Math.random() * (speedRange.max - speedRange.min);
+                this.wobblePhase = Math.random() * Math.PI * 2;
+                this.wobbleSpeed = 0.02 + Math.random() * 0.025;
+                this.wobbleAmp = 0.6 + Math.random() * 0.9;
+
+                this.palette = isGolden 
+                    ? GOLD_PALETTE 
+                    : BALLOON_PALETTES[Math.floor(Math.random() * BALLOON_PALETTES.length)];
+                this.scale = 1;
+            }
+
+            update() {
+                this.y -= this.vy;
+                this.wobblePhase += this.wobbleSpeed;
+                this.x += Math.sin(this.wobblePhase) * this.wobbleAmp;
+
+                // ป้องกันไม่ให้ลอยหลุดขอบซ้ายขวา
+                const margin = this.rx + 8;
+                if (this.x < margin) this.x = margin;
+                if (this.x > canvas.width - margin) this.x = canvas.width - margin;
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+
+                // เชือกผูกลูกโป่งพลิ้วไหว
+                ctx.beginPath();
+                ctx.moveTo(0, this.ry);
+                const sway = Math.sin(this.wobblePhase * 1.5) * 8;
+                ctx.quadraticCurveTo(sway, this.ry + 22, -sway * 0.5, this.ry + 44);
+                ctx.strokeStyle = this.isGolden ? "rgba(253, 224, 71, 0.85)" : "rgba(255, 255, 255, 0.65)";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // ปมลูกโป่งด้านล่าง
+                ctx.beginPath();
+                ctx.moveTo(-6, this.ry + 4);
+                ctx.lineTo(6, this.ry + 4);
+                ctx.lineTo(0, this.ry - 2);
+                ctx.closePath();
+                ctx.fillStyle = this.palette.dark;
+                ctx.fill();
+
+                // เงาเรืองแสงรอบลูกโป่ง (เน้นเป็นพิเศษถ้าเป็นลูกโป่งทอง)
+                if (this.isGolden) {
+                    ctx.shadowColor = "rgba(250, 204, 21, 0.85)";
+                    ctx.shadowBlur = 22;
+                } else {
+                    ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+                    ctx.shadowBlur = 12;
+                }
+
+                // ตัวลูกโป่งทรงวงรีไล่เฉดสี 3 มิติ
+                const grad = ctx.createRadialGradient(
+                    -this.rx * 0.3, -this.ry * 0.3, this.rx * 0.1,
+                    0, 0, this.ry
+                );
+                grad.addColorStop(0, this.palette.light);
+                grad.addColorStop(0.55, this.palette.main);
+                grad.addColorStop(1, this.palette.dark);
+
+                ctx.beginPath();
+                ctx.ellipse(0, 0, this.rx, this.ry, 0, 0, Math.PI * 2);
+                ctx.fillStyle = grad;
+                ctx.fill();
+
+                // ขอบลูกโป่งบาง ๆ
+                ctx.lineWidth = this.isGolden ? 3 : 1.5;
+                ctx.strokeStyle = this.isGolden ? "#fef08a" : "rgba(255,255,255,0.45)";
+                ctx.stroke();
+
+                // รีเซ็ต shadow ก่อนวาดไฮไลต์และข้อความ
+                ctx.shadowBlur = 0;
+
+                // แสงสะท้อนเงาบนผิวลูกโป่ง
+                ctx.save();
+                ctx.translate(-this.rx * 0.38, -this.ry * 0.36);
+                ctx.rotate(-Math.PI / 6);
+                ctx.beginPath();
+                ctx.ellipse(0, 0, this.rx * 0.14, this.ry * 0.24, 0, 0, Math.PI * 2);
+                ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+                ctx.fill();
+                ctx.restore();
+
+                // ป้ายกำกับ BONUS ด้านบนลูกโป่งทอง
+                if (this.isGolden) {
+                    ctx.fillStyle = "#fef08a";
+                    ctx.font = "bold 11px 'Kanit', sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.fillText("★ BONUS x2 ★", 0, -this.ry * 0.55);
+                }
+
+                // ข้อความชื่อพอลิเมอร์ตรงกลางลูกโป่ง (ตัดคำอัตโนมัติถ้าชื่อยาว)
+                this.drawLabelText(ctx);
+
+                ctx.restore();
+            }
+
+            drawLabelText(ctx) {
+                const text = this.polymer.name;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+
+                // ปรับขนาดฟอนต์ตามความยาวชื่อ
+                let fontSize = text.length > 16 ? 13 : (text.length > 11 ? 15 : 17);
+                ctx.font = `700 ${fontSize}px 'Kanit', sans-serif`;
+
+                // ตัดบรรทัดสำหรับชื่อที่ยาวมาก เช่น "พอลิเอทิลีนเทเรฟทาเลต" หรือ "พอลิไวนิลคลอไรด์"
+                let lines = [text];
+                if (text === "พอลิเอทิลีนเทเรฟทาเลต") {
+                    lines = ["พอลิเอทิลีน", "เทเรฟทาเลต"];
+                } else if (text === "พอลิไวนิลคลอไรด์") {
+                    lines = ["พอลิไวนิล", "คลอไรด์"];
+                }
+
+                const lineHeight = fontSize * 1.18;
+                const startY = -((lines.length - 1) * lineHeight) / 2 + (this.isGolden ? 4 : 0);
+
+                lines.forEach((line, idx) => {
+                    const yPos = startY + idx * lineHeight;
+                    // ขอบตัวอักษรสีเข้มเพื่อให้อ่านชัดเจนบนทุกพื้นหลัง
+                    ctx.lineWidth = 4;
+                    ctx.strokeStyle = "rgba(15, 23, 42, 0.85)";
+                    ctx.strokeText(line, 0, yPos);
+
+                    ctx.fillStyle = "#ffffff";
+                    ctx.fillText(line, 0, yPos);
+                });
+            }
+
+            isHit(px, py) {
+                const dx = (px - this.x) / (this.rx * 1.08);
+                const dy = (py - this.y) / (this.ry * 1.08);
+                return (dx * dx + dy * dy) <= 1;
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 2 + Math.random() * 6;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.radius = 3 + Math.random() * 5;
+                this.color = color;
+                this.alpha = 1;
+                this.decay = 0.025 + Math.random() * 0.02;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.15; // แรงโน้มถ่วงเล็กน้อย
+                this.alpha -= this.decay;
+            }
+            draw(ctx) {
+                if (this.alpha <= 0) return;
+                ctx.save();
+                ctx.globalAlpha = this.alpha;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class FloatingText {
+            constructor(x, y, text, color) {
+                this.x = x;
+                this.y = y;
+                this.text = text;
+                this.color = color;
+                this.alpha = 1;
+                this.vy = -1.8;
+            }
+            update() {
+                this.y += this.vy;
+                this.alpha -= 0.02;
+            }
+            draw(ctx) {
+                if (this.alpha <= 0) return;
+                ctx.save();
+                ctx.globalAlpha = this.alpha;
+                ctx.font = "800 22px 'Kanit', sans-serif";
+                ctx.textAlign = "center";
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = "rgba(2, 6, 23, 0.9)";
+                ctx.strokeText(this.text, this.x, this.y);
+                ctx.fillStyle = this.color;
+                ctx.fillText(this.text, this.x, this.y);
+                ctx.restore();
+            }
+        }
+
+        /**
+         * 6. ฟังก์ชันจัดการการเกิดลูกโป่งและการควบคุมการแตะ
+         */
+        function spawnBalloon() {
+            const config = LEVEL_CONFIGS[gameState.currentLevel];
+            
+            // เพิ่มโอกาสให้พอลิเมอร์ตรงเป้าหมายปรากฏประมาณ 55% เพื่อให้ผู้เล่นทำคะแนนได้สนุก
+            const wantTarget = Math.random() < 0.55;
+            const pool = POLYMERS.filter(p => wantTarget ? p.type === gameState.currentTarget : p.type !== gameState.currentTarget);
+            const selectedPolymer = pool[Math.floor(Math.random() * pool.length)];
+
+            // โอกาส 18% ที่ลูกโป่งตรงเป้าหมายจะเป็นลูกโป่งสีทองโบนัสพิเศษ
+            const isGolden = (selectedPolymer.type === gameState.currentTarget) && (Math.random() < 0.18);
+
+            const balloon = new Balloon(selectedPolymer, isGolden, {
+                min: config.minSpeed,
+                max: config.maxSpeed
+            });
+            gameState.balloons.push(balloon);
+        }
+
+        function createExplosion(x, y, palette) {
+            for (let i = 0; i < 18; i++) {
+                const c = i % 2 === 0 ? palette.light : palette.main;
+                gameState.particles.push(new Particle(x, y, c));
+            }
+        }
+
+        let toastTimeout = null;
+        function showToast(message, isSuccess = false) {
+            const toast = document.getElementById("feedback-toast");
+            const box = document.getElementById("feedback-toast-box");
+            box.innerHTML = message;
+            box.className = isSuccess
+                ? "px-4 py-2 rounded-2xl bg-emerald-950/90 border border-emerald-400 text-emerald-200 text-xs md:text-sm font-medium shadow-xl backdrop-blur-md text-center"
+                : "px-4 py-2 rounded-2xl bg-rose-950/90 border border-rose-500 text-rose-200 text-xs md:text-sm font-medium shadow-xl backdrop-blur-md text-center";
+            toast.classList.remove("opacity-0");
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                toast.classList.add("opacity-0");
+            }, 2200);
+        }
+
+        function handleCanvasPointer(clientX, clientY) {
+            if (!gameState.isPlaying) return;
+
+            // ตรวจสอบจากลูกโป่งที่อยู่ด้านหน้าสุด (ท้ายอาร์เรย์)
+            for (let i = gameState.balloons.length - 1; i >= 0; i--) {
+                const b = gameState.balloons[i];
+                if (b.isHit(clientX, clientY)) {
+                    // ลบลูกโป่งออกและสร้างเอฟเฟกต์ระเบิด
+                    gameState.balloons.splice(i, 1);
+                    createExplosion(b.x, b.y, b.palette);
+
+                    const isCorrect = (b.polymer.type === gameState.currentTarget);
+
+                    if (isCorrect) {
+                        // แตะถูกต้อง!
+                        gameState.combo++;
+                        gameState.correctCount++;
+                        if (gameState.combo > gameState.maxCombo) {
+                            gameState.maxCombo = gameState.combo;
+                        }
+
+                        const basePts = 100;
+                        const comboBonus = gameState.combo > 1 ? (gameState.combo - 1) * 20 : 0;
+                        const goldenBonus = b.isGolden ? 200 : 0;
+                        const totalBonus = comboBonus + goldenBonus;
+
+                        gameState.levelBaseScore += basePts;
+                        gameState.levelBonusScore += totalBonus;
+
+                        if (b.isGolden) {
+                            sfx.playBonus();
+                            gameState.floatingTexts.push(new FloatingText(b.x, b.y - 10, `+${basePts + totalBonus} โบนัสทอง!`, "#fde047"));
+                            showToast(`🌟 ยอดเยี่ยม! "${b.polymer.name}" โบนัสพิเศษ +${totalBonus} คะแนน`, true);
+                        } else {
+                            sfx.playPop(gameState.combo);
+                            const label = totalBonus > 0 ? `+${basePts} (โบนัส +${totalBonus})` : `+${basePts}`;
+                            gameState.floatingTexts.push(new FloatingText(b.x, b.y - 10, label, "#6ee7b7"));
+                        }
+                    } else {
+                        // แตะผิดประเภท!
+                        sfx.playWrong();
+                        gameState.combo = 0;
+                        const penalty = 50;
+                        gameState.levelBaseScore = Math.max(0, gameState.levelBaseScore - penalty);
+
+                        gameState.floatingTexts.push(new FloatingText(b.x, b.y - 10, `-${penalty} ผิดประเภท!`, "#fda4af"));
+
+                        // สั่นหน้าจอเล็กน้อย
+                        document.body.classList.remove("shake-screen");
+                        void document.body.offsetWidth;
+                        document.body.classList.add("shake-screen");
+
+                        const actualTypeThai = b.polymer.type === "natural" ? "พอลิเมอร์ธรรมชาติ" : "พอลิเมอร์สังเคราะห์";
+                        showToast(`❌ "${b.polymer.name}" เป็น<b>${actualTypeThai}</b> (${b.polymer.hint})`, false);
+                    }
+
+                    updateHUD();
+                    break; // แตะได้ทีละ 1 ลูกต่อ 1 การสัมผัส
+                }
+            }
+        }
+
+        // รองรับทั้งเมาส์และหน้าจอสัมผัส (Touch)
+        canvas.addEventListener("pointerdown", (e) => {
+            handleCanvasPointer(e.clientX, e.clientY);
+        });
+
+        /**
+         * 7. ลูปแอนิเมชันหลัก (60 FPS)
+         */
+        function gameLoop(timestamp) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (gameState.isPlaying) {
+                const config = LEVEL_CONFIGS[gameState.currentLevel];
+                if (timestamp - gameState.lastSpawnTime > config.spawnInterval) {
+                    spawnBalloon();
+                    gameState.lastSpawnTime = timestamp;
+                }
+
+                // อัปเดตและวาดลูกโป่ง
+                for (let i = gameState.balloons.length - 1; i >= 0; i--) {
+                    const b = gameState.balloons[i];
+                    b.update();
+                    b.draw(ctx);
+                    if (b.y < -b.ry - 50) {
+                        gameState.balloons.splice(i, 1);
+                    }
+                }
+            }
+
+            // อัปเดตและวาดอนุภาคระเบิด
+            for (let i = gameState.particles.length - 1; i >= 0; i--) {
+                const p = gameState.particles[i];
+                p.update();
+                p.draw(ctx);
+                if (p.alpha <= 0) {
+                    gameState.particles.splice(i, 1);
+                }
+            }
+
+            // อัปเดตและวาดข้อความคะแนนลอย
+            for (let i = gameState.floatingTexts.length - 1; i >= 0; i--) {
+                const ft = gameState.floatingTexts[i];
+                ft.update();
+                ft.draw(ctx);
+                if (ft.alpha <= 0) {
+                    gameState.floatingTexts.splice(i, 1);
+                }
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        /**
+         * 8. การจัดการหน้าจอและลำดับด่าน (Flow Control)
+         */
+        function hideAllScreens() {
+            document.getElementById("cover-screen").classList.add("hidden");
+            document.getElementById("briefing-screen").classList.add("hidden");
+            document.getElementById("game-hud").classList.add("hidden");
+            document.getElementById("level-complete-screen").classList.add("hidden");
+            document.getElementById("final-summary-screen").classList.add("hidden");
+        }
+
+        function updateTargetBannerUI() {
+            const banner = document.getElementById("hud-target-banner");
+            const label = document.getElementById("hud-target-label");
+
+            if (gameState.currentTarget === "natural") {
+                banner.className = "mx-auto px-5 py-2 rounded-2xl bg-emerald-950/90 backdrop-blur-md border-2 border-emerald-400 shadow-lg flex items-center gap-2.5 transition-all duration-300";
+                label.className = "font-display font-extrabold text-base md:text-lg text-emerald-300 tracking-wide";
+                label.textContent = "🌿 พอลิเมอร์ธรรมชาติ";
+            } else {
+                banner.className = "mx-auto px-5 py-2 rounded-2xl bg-fuchsia-950/90 backdrop-blur-md border-2 border-fuchsia-400 shadow-lg flex items-center gap-2.5 transition-all duration-300";
+                label.className = "font-display font-extrabold text-base md:text-lg text-fuchsia-300 tracking-wide";
+                label.textContent = "🧪 พอลิเมอร์สังเคราะห์";
+            }
+        }
+
+        function updateHUD() {
+            document.getElementById("hud-level-badge").textContent = `ด่าน ${gameState.currentLevel}/3`;
+            document.getElementById("hud-timer").textContent = gameState.timeLeft;
+            document.getElementById("hud-score").textContent = (gameState.levelBaseScore + gameState.levelBonusScore).toLocaleString();
+
+            const comboBadge = document.getElementById("hud-combo-badge");
+            if (gameState.combo >= 2) {
+                comboBadge.classList.remove("hidden");
+                comboBadge.textContent = `🔥 COMBO x${gameState.combo}`;
+            } else {
+                comboBadge.classList.add("hidden");
+            }
+        }
+
+        function showLevelBriefing(levelNum) {
+            hideAllScreens();
+            gameState.currentLevel = levelNum;
+            const config = LEVEL_CONFIGS[levelNum];
+
+            document.getElementById("briefing-badge").textContent = config.badge;
+            document.getElementById("briefing-title").textContent = config.title;
+            document.getElementById("briefing-desc").innerHTML = config.desc;
+
+            const targetBox = document.getElementById("briefing-target-box");
+            const targetText = document.getElementById("briefing-target-text");
+
+            if (config.targetType === "natural") {
+                targetBox.className = "my-4 p-4 rounded-2xl bg-emerald-500/15 border border-emerald-400/40";
+                targetText.className = "font-display text-xl md:text-2xl font-bold text-emerald-300";
+                targetText.textContent = "🌿 พอลิเมอร์ธรรมชาติ";
+            } else if (config.targetType === "synthetic") {
+                targetBox.className = "my-4 p-4 rounded-2xl bg-fuchsia-500/15 border border-fuchsia-400/40";
+                targetText.className = "font-display text-xl md:text-2xl font-bold text-fuchsia-300";
+                targetText.textContent = "🧪 พอลิเมอร์สังเคราะห์";
+            } else {
+                targetBox.className = "my-4 p-4 rounded-2xl bg-amber-500/15 border border-amber-400/40";
+                targetText.className = "font-display text-lg md:text-xl font-bold text-amber-300";
+                targetText.textContent = "⚡ สลับเป้าหมายอัตโนมัติ (ธรรมชาติ ⇄ สังเคราะห์)";
+            }
+
+            document.getElementById("briefing-screen").classList.remove("hidden");
+        }
+
+        function startLevel(levelNum) {
+            hideAllScreens();
+            const config = LEVEL_CONFIGS[levelNum];
+
+            gameState.currentLevel = levelNum;
+            gameState.timeLeft = config.duration;
+            gameState.levelBaseScore = 0;
+            gameState.levelBonusScore = 0;
+            gameState.combo = 0;
+            gameState.balloons = [];
+            gameState.lastSpawnTime = 0;
+
+            // กำหนดเป้าหมายเริ่มต้นของด่าน
+            gameState.currentTarget = (config.targetType === "dynamic") ? "natural" : config.targetType;
+            updateTargetBannerUI();
+            updateHUD();
+
+            document.getElementById("game-hud").classList.remove("hidden");
+            gameState.isPlaying = true;
+
+            // ยิงลูกโป่งลูกแรกทันที
+            spawnBalloon();
+
+            // เริ่มตัวนับเวลาถอยหลัง
+            clearInterval(gameState.timerInterval);
+            clearInterval(gameState.switchInterval);
+
+            gameState.timerInterval = setInterval(() => {
+                gameState.timeLeft--;
+                updateHUD();
+
+                if (gameState.timeLeft <= 0) {
+                    finishLevel();
+                }
+            }, 1000);
+
+            // สำหรับด่านที่ 3: สลับเป้าหมายทุก ๆ 12 วินาที
+            if (config.targetType === "dynamic") {
+                gameState.switchInterval = setInterval(() => {
+                    if (!gameState.isPlaying) return;
+                    gameState.currentTarget = (gameState.currentTarget === "natural") ? "synthetic" : "natural";
+                    updateTargetBannerUI();
+                    sfx.playSwitch();
+                    const modeName = gameState.currentTarget === "natural" ? "🌿 พอลิเมอร์ธรรมชาติ" : "🧪 พอลิเมอร์สังเคราะห์";
+                    showToast(`🔄 เปลี่ยนเป้าหมาย! ตอนนี้ให้แตะ <b>${modeName}</b>`, true);
+                }, 12000);
+            }
+        }
+
+        function finishLevel() {
+            gameState.isPlaying = false;
+            clearInterval(gameState.timerInterval);
+            clearInterval(gameState.switchInterval);
+            sfx.playLevelWin();
+
+            // คำนวณโบนัสพิเศษเพิ่มเมื่อจบด่าน (ถ้าทำคะแนนฐานได้มากกว่า 0)
+            const clearBonus = gameState.levelBaseScore > 0 ? 150 : 0;
+            gameState.levelBonusScore += clearBonus;
+
+            const lvlTotal = gameState.levelBaseScore + gameState.levelBonusScore;
+            gameState.levelResults[gameState.currentLevel] = {
+                base: gameState.levelBaseScore,
+                bonus: gameState.levelBonusScore,
+                total: lvlTotal
+            };
+
+            hideAllScreens();
+            document.getElementById("lc-title").textContent = `จบด่านที่ ${gameState.currentLevel} แล้ว!`;
+            document.getElementById("lc-base-score").textContent = `+${gameState.levelBaseScore.toLocaleString()} คะแนน`;
+            document.getElementById("lc-bonus-score").textContent = `+${gameState.levelBonusScore.toLocaleString()} คะแนน`;
+            document.getElementById("lc-total-score").textContent = `${lvlTotal.toLocaleString()} คะแนน`;
+
+            const nextBtn = document.getElementById("btn-next-level");
+            if (gameState.currentLevel < 3) {
+                nextBtn.textContent = `ไปด่านที่ ${gameState.currentLevel + 1} ➔`;
+            } else {
+                nextBtn.textContent = `🏆 ดูสรุปคะแนนรวมทั้งหมด`;
+            }
+
+            document.getElementById("level-complete-screen").classList.remove("hidden");
+        }
+
+        function showFinalSummary() {
+            hideAllScreens();
+            const r1 = gameState.levelResults[1];
+            const r2 = gameState.levelResults[2];
+            const r3 = gameState.levelResults[3];
+
+            const totalBonus = r1.bonus + r2.bonus + r3.bonus;
+            const grandTotal = r1.total + r2.total + r3.total;
+
+            document.getElementById("sum-lvl1").textContent = `${r1.total.toLocaleString()} คะแนน`;
+            document.getElementById("sum-lvl2").textContent = `${r2.total.toLocaleString()} คะแนน`;
+            document.getElementById("sum-lvl3").textContent = `${r3.total.toLocaleString()} คะแนน`;
+            document.getElementById("sum-bonus").textContent = `+${totalBonus.toLocaleString()} คะแนน`;
+            document.getElementById("sum-grand-total").textContent = grandTotal.toLocaleString();
+
+            document.getElementById("sum-correct-count").textContent = `${gameState.correctCount} ครั้ง`;
+            document.getElementById("sum-max-combo").textContent = `${gameState.maxCombo} ต่อเนื่อง`;
+
+            // จัดอันดับ Rank ตามคะแนนรวม
+            const rankBadge = document.getElementById("final-rank-badge");
+            const rankTitle = document.getElementById("final-rank-title");
+            const rankDesc = document.getElementById("final-rank-desc");
+
+            if (grandTotal >= 3500) {
+                rankBadge.textContent = "S";
+                rankBadge.className = "w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-300 via-yellow-400 to-orange-500 flex items-center justify-center font-display text-4xl font-black text-slate-950 shadow-lg";
+                rankTitle.textContent = "ระดับปรมาจารย์พอลิเมอร์!";
+                rankDesc.textContent = "สุดยอด! แยกแยะพอลิเมอร์ธรรมชาติและสังเคราะห์ได้อย่างแม่นยำไร้ที่ติ";
+            } else if (grandTotal >= 2200) {
+                rankBadge.textContent = "A";
+                rankBadge.className = "w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center font-display text-4xl font-black text-white shadow-lg";
+                rankTitle.textContent = "นักเคมีพอลิเมอร์มือโปร!";
+                rankDesc.textContent = "ทำคะแนนได้ยอดเยี่ยมมาก เข้าใจประเภทของพอลิเมอร์เป็นอย่างดี";
+            } else if (grandTotal >= 1200) {
+                rankBadge.textContent = "B";
+                rankBadge.className = "w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center font-display text-4xl font-black text-white shadow-lg";
+                rankTitle.textContent = "ผู้เชี่ยวชาญฝึกหัด!";
+                rankDesc.textContent = "ผ่านภารกิจครบทั้ง 3 ด่าน ลองเล่นอีกครั้งเพื่อทำคอมโบให้สูงขึ้นนะ";
+            } else {
+                rankBadge.textContent = "C";
+                rankBadge.className = "w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-400 to-fuchsia-600 flex items-center justify-center font-display text-4xl font-black text-white shadow-lg";
+                rankTitle.textContent = "นักสำรวจโลกพอลิเมอร์!";
+                rankDesc.textContent = "ลองกด 'ทบทวนความรู้' ที่หน้าแรก แล้วกลับมาท้าทายใหม่อีกครั้ง!";
+            }
+
+            document.getElementById("final-summary-screen").classList.remove("hidden");
+        }
+
+        function resetGameData() {
+            gameState.currentLevel = 1;
+            gameState.combo = 0;
+            gameState.maxCombo = 0;
+            gameState.correctCount = 0;
+            gameState.levelResults = {
+                1: { base: 0, bonus: 0, total: 0 },
+                2: { base: 0, bonus: 0, total: 0 },
+                3: { base: 0, bonus: 0, total: 0 }
+            };
+        }
+
+        /**
+         * 9. เติมข้อมูลหน้าต่างทบทวนความรู้และผูกปุ่มกดทั้งหมด
+         */
+        function populateStudyModal() {
+            const natContainer = document.getElementById("study-natural-list");
+            const synContainer = document.getElementById("study-synthetic-list");
+
+            POLYMERS.forEach(p => {
+                const chip = document.createElement("span");
+                chip.className = p.type === "natural"
+                    ? "px-3 py-1 rounded-xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs font-medium"
+                    : "px-3 py-1 rounded-xl bg-fuchsia-500/20 border border-fuchsia-400/40 text-fuchsia-200 text-xs font-medium";
+                chip.textContent = p.name;
+                if (p.type === "natural") natContainer.appendChild(chip);
+                else synContainer.appendChild(chip);
+            });
+        }
+
+        // Event Listeners สำหรับปุ่มต่าง ๆ
+        document.getElementById("btn-start-game").addEventListener("click", async () => {
+            await sfx.init();
+            resetGameData();
+            showLevelBriefing(1);
+        });
+
+        document.getElementById("btn-ready-level").addEventListener("click", async () => {
+            await sfx.init();
+            startLevel(gameState.currentLevel);
+        });
+
+        document.getElementById("btn-next-level").addEventListener("click", () => {
+            if (gameState.currentLevel < 3) {
+                showLevelBriefing(gameState.currentLevel + 1);
+            } else {
+                showFinalSummary();
+            }
+        });
+
+        document.getElementById("btn-replay").addEventListener("click", async () => {
+            await sfx.init();
+            resetGameData();
+            showLevelBriefing(1);
+        });
+
+        document.getElementById("btn-home").addEventListener("click", () => {
+            hideAllScreens();
+            document.getElementById("cover-screen").classList.remove("hidden");
+        });
+
+        // ปุ่มเปิด/ปิดหน้าต่างทบทวนความรู้
+        document.getElementById("btn-study").addEventListener("click", () => {
+            document.getElementById("study-modal").classList.remove("hidden");
+        });
+        document.getElementById("btn-close-study").addEventListener("click", () => {
+            document.getElementById("study-modal").classList.add("hidden");
+        });
+        document.getElementById("btn-close-study-bottom").addEventListener("click", () => {
+            document.getElementById("study-modal").classList.add("hidden");
+        });
+
+        // เริ่มต้นทำงานเมื่อโหลดหน้าเว็บเสร็จสมบูรณ์
+        window.onload = function () {
+            populateStudyModal();
+            setupCamera(arCameraToggle.checked);
+            requestAnimationFrame(gameLoop);
+        };
+    </script>
+</body>
+</html>
